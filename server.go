@@ -1,4 +1,4 @@
-package client
+package main
 
 import (
 	"Ex3_Week6/constants"
@@ -25,6 +25,8 @@ func init() {
 		"crime":     {},
 		"terrorism": {},
 		"death":     {},
+		"criminal":  {},
+		"drug":      {},
 	}
 }
 
@@ -79,12 +81,15 @@ func HandleRequest(conn net.Conn) error {
 			break
 		}
 
+		done := make(chan struct{})
+
 		if isMessageForbidden(message) {
 			log.Infof("Message from %s contains forbidden word: %s", username, message)
 			_, err = conn.Write([]byte("Error: Message contains forbidden words\n"))
 			if err != nil {
 				log.WithError(err).Error("Error sending error message to client")
 			}
+			close(done)
 			return err
 		}
 		log.Infof("Received message from %s: %s", username, message)
@@ -92,8 +97,10 @@ func HandleRequest(conn net.Conn) error {
 		_, err = conn.Write([]byte("Server received the message\n"))
 		if err != nil {
 			log.WithError(err).Error("Error sending confirmation message to client")
+			close(done)
 			return err
 		}
+		close(done)
 	}
 	return nil
 }

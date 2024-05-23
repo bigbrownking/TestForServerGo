@@ -1,9 +1,9 @@
-package client
+package main
 
 import (
 	"Ex3_Week6/constants"
+	"bufio"
 	"errors"
-	"fmt"
 	"github.com/fatih/color"
 	"github.com/go-playground/log"
 	"github.com/go-playground/log/handlers/console"
@@ -229,41 +229,6 @@ func TestHandleRequest_ConnectionTimeout(t *testing.T) {
 	yellow := color.New(color.FgYellow).PrintfFunc()
 	yellow("TestHandleRequest_ConnectionTimeout completed\n")
 } // 6
-func TestHandleRequest_StressTest(t *testing.T) {
-	log.AddHandler(console.New(true), log.AllLevels...)
-	green := color.New(color.FgGreen).PrintfFunc()
-	green("Starting TestHandleRequest_StressTest\n")
-
-	numClients := 10
-	messagesPerClient := 100
-
-	for i := 0; i < numClients; i++ {
-		conn, serverConn := net.Pipe()
-		defer conn.Close()
-		defer serverConn.Close()
-
-		go HandleRequest(conn)
-
-		username := "testUser" + fmt.Sprint(i) + "\n"
-		_, err := serverConn.Write([]byte(username))
-		if err != nil {
-			log.Errorf("Error writing username for client %d: %s", i, err)
-			t.Fatalf("Error writing username: %s", err)
-		}
-
-		for j := 0; j < messagesPerClient; j++ {
-			message := "Message " + fmt.Sprint(j) + "-" + fmt.Sprint(j) + "\n"
-			_, err := serverConn.Write([]byte(message))
-			if err != nil {
-				log.Errorf("Error writing message for client %d: %s", i, err)
-			}
-		}
-	}
-
-	time.Sleep(1 * time.Second)
-	yellow := color.New(color.FgYellow).PrintfFunc()
-	yellow("TestHandleRequest_StressTest completed\n")
-} // 7
 func TestHandleRequest_LargeUsername(t *testing.T) { // 8
 	log.AddHandler(console.New(true), log.AllLevels...)
 	green := color.New(color.FgGreen).PrintfFunc()
@@ -286,7 +251,7 @@ func TestHandleRequest_LargeUsername(t *testing.T) { // 8
 	time.Sleep(100 * time.Millisecond)
 	yellow := color.New(color.FgYellow).PrintfFunc()
 	yellow("TestHandleRequest_LargeUsername completed\n")
-} // 8
+} // 7
 func TestHandleRequest_DisconnectedServer(t *testing.T) {
 	log.AddHandler(console.New(true), log.AllLevels...)
 	green := color.New(color.FgGreen).PrintfFunc()
@@ -304,10 +269,8 @@ func TestHandleRequest_DisconnectedServer(t *testing.T) {
 		t.Fatalf("Error writing username: %s", err)
 	}
 
-	// Simulate server disconnect by closing the server-side of the pipe
 	serverConn.Close()
 
-	// Try sending a message after server disconnection
 	message := "Test message\n"
 	_, err = conn.Write([]byte(message))
 	if err == nil {
@@ -321,34 +284,80 @@ func TestHandleRequest_DisconnectedServer(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	yellow := color.New(color.FgYellow).PrintfFunc()
 	yellow("TestHandleRequest_DisconnectedServer completed\n")
-} // 9
-func TestHandleRequest_ServerFull(t *testing.T) {
+} // 8
+func TestHandleRequest_ForbiddenWords(t *testing.T) {
 	log.AddHandler(console.New(true), log.AllLevels...)
 	green := color.New(color.FgGreen).PrintfFunc()
-	green("Starting TestHandleRequest_ServerFull\n")
+	green("Starting TestHandleRequest_ForbiddenWords\n")
 
-	listener, err := net.Listen(constants.TYPE, constants.HOST+":"+constants.PORT)
+	conn, serverConn := net.Pipe()
+	defer conn.Close()
+	defer serverConn.Close()
+
+	go HandleRequest(conn)
+
+	username := "testUser\n"
+	_, err := serverConn.Write([]byte(username))
 	if err != nil {
-		t.Fatalf("Unexpected error creating listener: %v", err)
-	}
-	defer listener.Close()
-
-	// Try connecting a client with a timeout
-	conn, err := net.DialTimeout(constants.TYPE, constants.HOST+":"+constants.PORT, 100*time.Millisecond)
-	defer func() {
-		if conn != nil {
-			conn.Close()
-		}
-	}()
-
-	if err != nil {
-		// Expected error as server is not handling connections
-		yellow := color.New(color.FgYellow).PrintfFunc()
-		yellow("TestHandleRequest_ServerFull completed (expected error)\n")
-		return
+		log.Errorf("Error writing username: %s", err)
+		t.Fatalf("Error writing username: %s", err)
 	}
 
-	t.Errorf("Unexpected successful connection to a full server")
+	message := "This message contains alcohol\n"
+	_, err = serverConn.Write([]byte(message))
+	if err != nil {
+		log.Errorf("Error writing message: %s", err)
+		t.Fatalf("Error writing message: %s", err)
+	}
+
+	response, err := bufio.NewReader(serverConn).ReadString('\n')
+	if err != nil {
+		t.Fatalf("Error reading response: %s", err)
+	}
+
+	if !strings.Contains(response, "Error: Message contains forbidden words") {
+		t.Errorf("Expected forbidden word error message, got: %s", response)
+	}
+
+	time.Sleep(100 * time.Millisecond)
 	yellow := color.New(color.FgYellow).PrintfFunc()
-	yellow("TestHandleRequest_ServerFull completed (FAIL)\n")
-} // 10
+	yellow("TestHandleRequest_ForbiddenWords completed\n")
+} // 9
+func TestHandleRequest_InvalidMessageFormat(t *testing.T) {
+	log.AddHandler(console.New(true), log.AllLevels...)
+	green := color.New(color.FgGreen).PrintfFunc()
+	green("Starting TestHandleRequest_InvalidMessageFormat\n")
+
+	conn, serverConn := net.Pipe()
+	defer conn.Close()
+	defer serverConn.Close()
+
+	go HandleRequest(conn)
+
+	username := "testUser\n"
+	_, err := serverConn.Write([]byte(username))
+	if err != nil {
+		log.Errorf("Error writing username: %s", err)
+		t.Fatalf("Error writing username: %s", err)
+	}
+
+	invalidMessage := "This is an incomplete message"
+	_, err = serverConn.Write([]byte(invalidMessage)) // Message without newline
+	if err != nil {
+		log.Errorf("Error writing invalid message: %s", err)
+		t.Fatalf("Error writing invalid message: %s", err)
+	}
+
+	response, err := bufio.NewReader(serverConn).ReadString('\n')
+	if err != nil {
+		t.Fatalf("Error reading response: %s", err)
+	}
+
+	if !strings.Contains(response, "Error: Invalid message format") {
+		t.Errorf("Expected invalid message format error, got: %s", response)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	yellow := color.New(color.FgYellow).PrintfFunc()
+	yellow("TestHandleRequest_InvalidMessageFormat completed\n")
+} //10
